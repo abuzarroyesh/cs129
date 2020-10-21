@@ -1,0 +1,64 @@
+---
+title: "Final_project"
+output:
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+
+covid <- read_csv("covid_cleaned.csv")
+
+###Dividing into train, valid, test 
+set.seed(1234)
+
+covid_rand <- 
+  covid %>% 
+  filter(!is.na(total_pop)) %>% 
+  mutate(
+    group = 
+      sample(c(1, 2, 3), size = nrow(.), prob= c(0.6, 0.2, 0.2), replace = TRUE)
+  ) %>% 
+  select(-fips, -county_name, -deaths, -white) #dropping white because it is 1 - other races 
+
+train <- covid_rand %>% filter(group == 1) %>% select(-group)
+valid <- covid_rand %>% filter(group == 2) %>% select(-group)
+test <- covid_rand %>% filter(group == 3) %>% select(-group)
+
+```
+
+###Linear model
+```{r}
+lm_fit <- lm(confirmed ~ ., data = train)
+```
+
+###MSE on training set
+```{r}
+train %>% 
+  mutate(
+    pred = predict(lm_fit, .),
+    sqr_error = (confirmed - pred)^2
+  ) %>% 
+  summarize(mse = mean(sqr_error, na.rm = TRUE))
+```
+
+
+###MSE on test set
+```{r}
+test %>% 
+  mutate(
+    pred = predict(lm_fit, .),
+    sqr_error = (confirmed - pred)^2
+  ) %>% 
+  summarize(mse = mean(sqr_error, na.rm = TRUE))
+```
+
+
+
+
+
+
