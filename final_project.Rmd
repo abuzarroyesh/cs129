@@ -1,0 +1,124 @@
+---
+title: "Final_project"
+output:
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+
+covid_raw <- 
+  read_csv("data/10-20-2020.csv") %>% 
+  filter(Country_Region == "US") %>% 
+  select(
+    fips = FIPS, 
+    county_name = Admin2, 
+    state = Province_State, 
+    confirmed = Confirmed, 
+    deaths = Deaths
+  ) %>% 
+  mutate(fips = as.integer(fips))
+  
+```
+
+###Race data
+```{r}
+race_raw <- 
+  read_tsv("data/CDC_Bridged-Race Population Estimates 1990-2019.txt", n_max = 15730) %>% 
+  rename(
+    county = County, 
+    county_code = `County Code`, 
+    race = Race, 
+    population = Population
+  ) %>% 
+  mutate(county_code = as.integer(county_code))
+
+
+total_pop <- 
+  race_raw %>% 
+  filter(Notes == "Total") %>% 
+  filter(!is.na(county_code)) %>% 
+  select(county_code, population) %>% 
+  rename(total_pop = population)
+  
+
+race <- 
+  race_raw %>%
+  filter(is.na(Notes)) %>% 
+  left_join(total_pop, by = "county_code") %>% 
+  mutate(
+    race = 
+      recode(
+        race, 
+        "American Indian or Alaska Native" = "native", 
+        "Asian or Pacific Islander" = "asian", 
+        "Black or African American" = "black", 
+        "White" = "white"
+      ), 
+    prop = population / total_pop
+  ) %>% 
+  select(-population, -`Race Code`, -Notes, -total_pop, -county) %>% 
+  spread(key = race, value = prop)
+```
+
+
+###Merging datasets 
+```{r}
+covid <- 
+  covid_raw %>% 
+  left_join(race, by = c("fips" = "county_code")) %>% 
+  left_join(total_pop, by = c("fips" = "county_code")) 
+
+###Dividing into train, valid, test 
+set.seed(1234)
+
+covid_rand <- 
+  covid %>% 
+  filter(!is.na(total_pop)) %>% 
+  mutate(
+    group = 
+      sample(c(1, 2, 3), size = nrow(.), prob= c(0.6, 0.2, 0.2), replace = TRUE)
+  ) %>% 
+  select(-fips, -county_name, -deaths)
+
+train <- covid_rand %>% filter(group == 1) %>% select(-group)
+valid <- covid_rand %>% filter(group == 2) %>% select(-group)
+test <- covid_rand %>% filter(group == 3) %>% select(-group)
+
+```
+
+###Linear model
+```{r}
+lm_fit <- lm(confirmed ~ ., data = train)
+```
+
+###MSE on training set
+```{r}
+train %>% 
+  mutate(
+    pred = predict(lm_fit, .),
+    sqr_error = (confirmed - pred)^2
+  ) %>% 
+  summarize(mse = mean(sqr_error, na.rm = TRUE))
+```
+
+
+###MSE on test set
+```{r}
+test %>% 
+  mutate(
+    pred = predict(lm_fit, .),
+    sqr_error = (confirmed - pred)^2
+  ) %>% 
+  summarize(mse = mean(sqr_error, na.rm = TRUE))
+```
+
+
+
+
+
+
