@@ -22,97 +22,102 @@ covid_raw <-
     deaths = Deaths
   ) %>% 
   mutate(fips = as.integer(fips))
-  
 ```
 
-###Race data
+
 ```{r}
-race_raw <- 
-  read_tsv("data/cdc_race.txt", n_max = 15705) %>% 
-  rename(
-    county = County, 
-    county_code = `County Code`, 
-    race = Race, 
-    population = Population
-  ) %>% 
-  mutate(county_code = as.integer(county_code))
-
-#Getting total population of each county
-total_pop <- 
-  race_raw %>% 
-  filter(Notes == "Total") %>% 
-  filter(!is.na(county_code)) %>% 
-  select(county_code, population) %>% 
-  rename(total_pop = population)
-
-race <- 
-  race_raw %>%
-  filter(is.na(Notes)) %>% 
-  left_join(total_pop, by = "county_code") %>% 
+data <- 
+  read_tsv("data/pcen_v2019_y19.txt", col_names = FALSE) %>% 
   mutate(
-    race = 
+    series = str_sub(X1, start = 1L, end = 4L), 
+    estimate_year = str_sub(X1, start = 5L, end = 8L), 
+    estimate_month = str_sub(X1, start = 9L, end = 9L), 
+    fips = str_sub(X1, start = 10L, end = 14L),
+    # county_fips = str_sub(X1, start = 12L, end = 14L), 
+    age = str_sub(X1, start = 15L, end = 16L),
+    race_sex = str_sub(X1, start = 17L, end = 17L), 
+    hispanic_origin = str_sub(X1, start = 18L, end = 18L),
+    population = str_sub(X1, start = 19L, end = 26L),
+    race_sex = 
       recode(
-        race, 
-        "American Indian or Alaska Native" = "native", 
-        "Asian or Pacific Islander" = "asian", 
-        "Black or African American" = "black", 
-        "White" = "white"
-      ), 
-    prop = population / total_pop
+        race_sex, 
+        "1" = "m white", 
+        "2" = "f white", 
+        "3" = "m black", 
+        "4" = "f black", 
+        "5" = "m native", 
+        "6" = "f native", 
+        "7" = "m asian", 
+        "8" = "f asian"
+      ),
+    hispanic_origin = if_else(hispanic_origin == 1, "non-hispanic", "hispanic"),
+    sex = str_sub(race_sex, start = 1L, end = 1L),
+    race = str_sub(race_sex, start = 3L)
   ) %>% 
-  select(-population, -`Race Code`, -Notes, -total_pop, -county) %>% 
-  spread(key = race, value = prop)
+  mutate_at(vars(fips, age, population), as.integer) %>% 
+  mutate(
+    age_bracket = 
+      case_when(
+        age >= 0 & age <= 4   ~ "age1",
+        age >= 5 & age <= 17  ~ "age2",
+        age >= 18 & age <= 29 ~ "age3",
+        age >= 30 & age <= 39 ~ "age4",
+        age >= 40 & age <= 49 ~ "age5",
+        age >= 50 & age <= 64 ~ "age6",
+        age >= 65 & age <= 74 ~ "age7",
+        age >= 75 & age <= 84 ~ "age8",
+        age >= 85             ~ "age9"
+      )
+  ) %>% 
+  select(-X1, -race_sex, -age) 
+
 ```
 
 
-###Ethnicity data
+### What age means 
+"age1" = "age0-4"
+"age2" = "age5-17"
+"age3" = "age18-29"
+"age4" = "age30-39"
+"age5" = "age40-49"
+"age6" = "age50-64"
+"age7" = "age65-74"
+"age8" = "age75-84"
+"age9" = "age85+"
+
 ```{r}
-ethnicity <- 
-  read_tsv("data/cdc_ethnicity.txt", n_max = 9427) %>% 
-  rename(
-    county = County, 
-    county_code = `County Code`, 
-    ethnicity = Ethnicity, 
-    population = Population
-  ) %>% 
-  mutate(county_code = as.integer(county_code)) %>%
-  filter(ethnicity == "Hispanic or Latino") %>% 
-  left_join(total_pop, by = "county_code") %>% 
-  mutate(hispanic = population / total_pop) %>% 
-  select(county_code, hispanic)
+##Writing function to extract percentage for each category
+summary_stats <- function(variable_name){
+  variable_name = enquo(variable_name)
+  
+  data %>% 
+  group_by(fips, !!variable_name) %>% 
+  summarize(population = sum(population), .groups = "drop") %>% 
+  group_by(fips) %>% 
+  mutate(prop = population / sum(population)) %>% 
+  select(-population) %>% 
+  spread(key = !!variable_name, value = prop)
+}
+
+##Running the previous function on all categories
+demographics <- 
+  summary_stats(race) %>% 
+  left_join(summary_stats(sex), by = "fips") %>%
+  left_join(summary_stats(hispanic_origin), by = "fips") %>% 
+  left_join(summary_stats(age_bracket), by = "fips") %>% 
+  select(-white, -m, -`non-hispanic`, -`age1`) %>% #Dropping on column from each category
+  rename(female = f)
 ```
 
-###Gender data
 ```{r}
-gender <- 
-  read_tsv("data/cdc_gender.txt", n_max = 9427) %>% 
-  rename(
-    county = County, 
-    county_code = `County Code`, 
-    gender = Gender, 
-    population = Population
+##Merging the datasets
+covid_raw %>% 
+  left_join(
+    read_csv("data/county_populations.csv"), by = c("fips" = "county_code")
   ) %>% 
-  mutate(county_code = as.integer(county_code)) %>%
-  filter(gender == "Female") %>% 
-  left_join(total_pop, by = "county_code") %>% 
-  mutate(female = population / total_pop) %>% 
-  select(county_code, female)
-```
-
-
-###Merging datasets 
-```{r}
-covid <- 
-  covid_raw %>% 
-  left_join(total_pop, by = c("fips" = "county_code")) %>% 
-  left_join(race, by = c("fips" = "county_code")) %>% 
-  left_join(ethnicity, by = c("fips" = "county_code")) %>%
-  left_join(gender, by = c("fips" = "county_code")) %>%
+  left_join(demographics, by = "fips") %>% 
   write_csv("covid_cleaned.csv")
 ```
-
-
-
 
 
 

@@ -13,48 +13,123 @@ library(tidyverse)
 
 covid <- read_csv("covid_cleaned.csv")
 
+state_dummified <- 
+  covid %>% 
+  filter(!is.na(total_pop)) %>%
+  mutate(state = str_to_lower(state) %>% str_replace_all(" ", "_")) %>% 
+  sjmisc::to_dummy(state, suffix = "label") 
+
+
 ###Dividing into train, valid, test 
 set.seed(1234)
-
 covid_rand <- 
-  covid %>% 
-  filter(!is.na(total_pop)) %>% 
+  cbind(covid %>% filter(!is.na(total_pop)), state_dummified) %>% 
+  select(-fips, -county_name, -deaths, -state) %>% 
+  mutate_at(vars(-confirmed), scale) %>% 
   mutate(
     group = 
-      sample(c(1, 2, 3), size = nrow(.), prob= c(0.6, 0.2, 0.2), replace = TRUE)
-  ) %>% 
-  select(-fips, -county_name, -deaths, -white) #dropping white because it is 1 - other races 
+      sample(c(1, 2, 3), size = nrow(.), prob= c(0.6, 0.2, 0.2), replace = TRUE), 
+  )
+  
 
-train <- covid_rand %>% filter(group == 1) %>% select(-group)
-valid <- covid_rand %>% filter(group == 2) %>% select(-group)
-test <- covid_rand %>% filter(group == 3) %>% select(-group)
+#train
+train <- covid_rand %>% filter(group == 1) %>% select(-group) 
+train_x <- covid_rand %>% filter(group == 1) %>% select(-group, -confirmed) 
+train_y <- covid_rand %>% filter(group == 1) %>% pull(confirmed)
 
+#validation
+valid <- covid_rand %>% filter(group == 2) %>% select(-group) 
+valid_x <- covid_rand %>% filter(group == 2) %>% select(-group, -confirmed)
+valid_y <- covid_rand %>% filter(group == 2) %>% pull(confirmed)
+
+#test
+test <- covid_rand %>% filter(group == 3) %>% select(-group) 
+test_x <- covid_rand %>% filter(group == 3) %>% select(-group, -confirmed)
+test_y <- covid_rand %>% filter(group == 3) %>% pull(confirmed)
 ```
 
-###Linear model
+### Linear model
 ```{r}
 lm_fit <- lm(confirmed ~ ., data = train)
 ```
 
-###MSE on training set
+
+### Linear model with interactions
 ```{r}
-train %>% 
-  mutate(
-    pred = predict(lm_fit, .),
-    sqr_error = (confirmed - pred)^2
-  ) %>% 
-  summarize(mse = mean(sqr_error, na.rm = TRUE))
+lm_inter_fit <- lm(confirmed ~ . + .:., data = train)
 ```
 
 
-###MSE on test set
+### Neural Network
 ```{r}
-test %>% 
+library(keras)
+
+nn_model <-
+  keras_model_sequential() %>% 
+  layer_dense(input_shape = c(65), units = 50, activation = "relu") %>% 
+  layer_dropout(0.2) %>% 
+  layer_dense(units = 50, activation = "relu") %>% 
+  layer_dense(1, activation = "linear")
+
+summary(nn_model)
+
+nn_model %>% 
+  compile(
+    loss = "mean_squared_error",
+    optimizer = "adam",
+    metrics = "accuracy"
+  )
+
+history <- 
+  fit(
+    object = nn_model, 
+    x = as.matrix(train_x), 
+    y = train_y,
+    batch_size = 100, 
+    epochs = 150
+  )
+```
+
+
+
+### MSE on training set
+```{r}
+train %>% 
   mutate(
-    pred = predict(lm_fit, .),
-    sqr_error = (confirmed - pred)^2
+    lm_pred = predict(lm_fit, train_x),
+    lm_sqr_error = (confirmed - lm_pred)^2,
+    ilm_pred = predict(lm_inter_fit, train_x),
+    ilm_sqr_error = (confirmed - ilm_pred)^2,
+    nn_pred = predict(nn_model, as.matrix(train_x)),
+    nn_sqr_error = (confirmed - nn_pred)^2,
   ) %>% 
-  summarize(mse = mean(sqr_error, na.rm = TRUE))
+  summarize(
+    lm_mse = mean(lm_sqr_error, na.rm = TRUE), 
+    ilm_pred = mean(ilm_sqr_error, na.rm = TRUE),
+    nn_mse = mean(nn_sqr_error, na.rm = TRUE)
+  )
+
+
+```
+
+
+### MSE on validation set
+```{r}
+valid %>% 
+  mutate(
+    lm_pred = predict(lm_fit, valid_x),
+    lm_sqr_error = (confirmed - lm_pred)^2,
+    ilm_pred = predict(lm_inter_fit, valid_x),
+    ilm_sqr_error = (confirmed - ilm_pred)^2,
+    nn_pred = predict(nn_model, as.matrix(valid_x)),
+    nn_sqr_error = (confirmed - nn_pred)^2,
+  ) %>% 
+  summarize(
+    lm_mse = mean(lm_sqr_error, na.rm = TRUE), 
+    ilm_pred = mean(ilm_sqr_error, na.rm = TRUE),
+    nn_mse = mean(nn_sqr_error, na.rm = TRUE)
+  )
+
 ```
 
 
