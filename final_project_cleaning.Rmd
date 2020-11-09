@@ -8,8 +8,10 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+### Covid data
 ```{r}
 library(tidyverse)
+library(readxl)
 
 covid_raw <- 
   read_csv("data/10-20-2020.csv") %>% 
@@ -21,10 +23,13 @@ covid_raw <-
     confirmed = Confirmed, 
     deaths = Deaths
   ) %>% 
-  mutate(fips = as.integer(fips))
+  mutate(fips = as.integer(fips)) %>% 
+  filter(!str_detect(county_name, "Unassigned|Out of")) %>% 
+  filter(!is.na(fips)) %>% 
+  filter(!state == "Puerto Rico")
 ```
 
-
+### Demographic data
 ```{r}
 data <- 
   read_tsv("data/pcen_v2019_y19.txt", col_names = FALSE) %>% 
@@ -74,7 +79,7 @@ data <-
 ```
 
 
-### What age means 
+What age means: 
 "age1" = "age0-4"
 "age2" = "age5-17"
 "age3" = "age18-29"
@@ -109,15 +114,155 @@ demographics <-
   rename(female = f)
 ```
 
+### Poverty data
 ```{r}
-##Merging the datasets
+poverty <- 
+  read_xls("data/PovertyEstimates.xls") %>% 
+  mutate(fips = as.integer(FIPStxt)) %>% 
+  filter(!is.na(Urban_Influence_Code_2013)) %>% 
+  select(
+    fips, 
+    povall = PCTPOVALL_2018, 
+    urban_influence = Urban_Influence_Code_2013, 
+    pov017 = PCTPOV017_2018, 
+    pov517 = PCTPOV517_2018, 
+    med_hh_income = MEDHHINC_2018
+  )
+```
+
+### Education data
+```{r}
+education <- 
+  read_xls("data/Education.xls") %>% 
+  mutate(fips = as.integer(`FIPS Code`)) %>% 
+  filter(!is.na(`2013 Urban Influence Code`)) %>% 
+  select(
+    fips, 
+    #no_diploma = `Percent of adults with less than a high school diploma, 2014-18`,
+    #dropping this category since all add up to 1. 
+    high_school = `Percent of adults with a high school diploma only, 2014-18`, 
+    some_college = `Percent of adults completing some college or associate's degree, 2014-18`, 
+    bachelor_plus = `Percent of adults with a bachelor's degree or higher, 2014-18`
+  ) 
+```
+
+### Unemployment data
+```{r}
+unemp <- 
+  read_xls("data/Unemployment.xls") %>% 
+  mutate(fips = as.integer(`FIPStxt`)) %>% 
+  filter(!is.na(`Urban_influence_code_2013`)) %>% 
+  select(
+    fips, 
+    unemp = Unemployment_rate_2019, 
+    labor_force = Civilian_labor_force_2019
+  )
+```
+
+
+
+### Life expectancy, Physical activity, and obesity
+```{r}
+life <- 
+  read_xlsx("data/IHME_county_data_LifeExp.xlsx", sheet = 1) %>% 
+  filter(!is.na(County)) %>% 
+  select(
+    county_name = County, 
+    state = State,
+    female_life_exp = `Female life expectancy, 2010 (years)`, 
+    male_life_exp = `Male life expectancy, 2010 (years)`
+  ) %>% 
+  left_join(
+    read_xlsx("data/IHME_county_data_LifeExp.xlsx", sheet = 2) %>% 
+      filter(!is.na(County)) %>% 
+      select(
+        county_name = County, 
+        state = State,
+        female_phy_act = `Female sufficient physical activity  prevalence, 2011* (%)`, 
+        male_phy_act = `Male sufficient physical activity  prevalence, 2011* (%)`
+      ),
+    by = c("county_name", "state")
+  ) %>% 
+  left_join(
+    read_xlsx("data/IHME_county_data_LifeExp.xlsx", sheet = 3) %>% 
+      filter(!is.na(County)) %>% 
+      select(
+        county_name = County, 
+        state = State,
+        female_obesity = `Female obesity prevalence, 2011* (%)`, 
+        male_obesity = `Male obesity  prevalence, 2011* (%)`
+      ), 
+    by = c("county_name", "state")
+  )
+
+```
+
+### Diabetes
+```{r}
+diabetes <- 
+  read_xlsx("data/IHME_county_data_Diabetes.xlsx", sheet = "Total") %>% 
+  select(
+    fips = FIPS, 
+    female_diabetes = `Prevalence, 2012, Females`, 
+    male_diabetes = `Prevalence, 2012, Males`
+  )
+```
+
+### Mortality rates  
+```{r}
+mortality <- 
+  read_tsv("data/Multiple Cause of Death, 1999-2018.txt", n_max = 17189) %>% 
+  mutate(
+    fips = as.integer(`County Code`),
+    mort_rate = Deaths / Population,
+    age = 
+      recode(
+        `Ten-Year Age Groups`, 
+        "< 1 year" = "mort0", 
+        "1-4 years" = "mort1",
+        "5-14 years" = "mort2",
+        "15-24 years" = "mort3",
+        "25-34 years" = "mort4",
+        "35-44 years" = "mort5",
+        "45-54 years" = "mort6",
+        "55-64 years" = "mort7",
+        "65-74 years" = "mort8",
+        "75-84 years" = "mort9",
+        "85+ years" = "mort10"
+      )
+    ) %>% 
+  filter(age != "Not Stated") %>% 
+  select(fips, age, mort_rate) %>% 
+  spread(key = age, value = mort_rate) %>% 
+  mutate_all(replace_na, 0)
+
+```
+
+
+
+### Merging the datasets
+```{r}
 covid_raw %>% 
   left_join(
     read_csv("data/county_populations.csv"), by = c("fips" = "county_code")
   ) %>% 
   left_join(demographics, by = "fips") %>% 
+  left_join(poverty, by = "fips") %>% 
+  left_join(education, by = "fips") %>% 
+  left_join(unemp, by = "fips") %>% 
+  left_join(life, c("county_name", "state")) %>% 
+  left_join(diabetes, by = "fips") %>% 
+  left_join(mortality, by = "fips") %>% 
   write_csv("covid_cleaned.csv")
+
 ```
+
+
+
+
+
+
+
 
 
 

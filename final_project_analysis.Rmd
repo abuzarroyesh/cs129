@@ -19,44 +19,46 @@ state_dummified <-
   mutate(state = str_to_lower(state) %>% str_replace_all(" ", "_")) %>% 
   sjmisc::to_dummy(state, suffix = "label") 
 
-
 ###Dividing into train, valid, test 
 set.seed(1234)
 covid_rand <- 
   cbind(covid %>% filter(!is.na(total_pop)), state_dummified) %>% 
-  select(-fips, -county_name, -deaths, -state) %>% 
-  mutate_at(vars(-confirmed), scale) %>% 
+  select(-fips, -county_name, -state) %>% 
+  filter_all(~ !is.na(.)) %>% #Dropping all variables with NAs 
+  mutate_at(vars(-confirmed, -starts_with("state")), scale) %>% #feature scaling
   mutate(
     group = 
       sample(c(1, 2, 3), size = nrow(.), prob= c(0.6, 0.2, 0.2), replace = TRUE), 
   )
   
-
 #train
 train <- covid_rand %>% filter(group == 1) %>% select(-group) 
-train_x <- covid_rand %>% filter(group == 1) %>% select(-group, -confirmed) 
-train_y <- covid_rand %>% filter(group == 1) %>% pull(confirmed)
+train_x <- covid_rand %>% filter(group == 1) %>% select(-group, -deaths) 
+train_y <- covid_rand %>% filter(group == 1) %>% pull(deaths)
 
 #validation
 valid <- covid_rand %>% filter(group == 2) %>% select(-group) 
-valid_x <- covid_rand %>% filter(group == 2) %>% select(-group, -confirmed)
-valid_y <- covid_rand %>% filter(group == 2) %>% pull(confirmed)
+valid_x <- covid_rand %>% filter(group == 2) %>% select(-group, -deaths)
+valid_y <- covid_rand %>% filter(group == 2) %>% pull(deaths)
 
 #test
 test <- covid_rand %>% filter(group == 3) %>% select(-group) 
-test_x <- covid_rand %>% filter(group == 3) %>% select(-group, -confirmed)
-test_y <- covid_rand %>% filter(group == 3) %>% pull(confirmed)
+test_x <- covid_rand %>% filter(group == 3) %>% select(-group, -deaths)
+test_y <- covid_rand %>% filter(group == 3) %>% pull(deaths)
+
+covid %>% 
+  view()
 ```
 
 ### Linear model
 ```{r}
-lm_fit <- lm(confirmed ~ ., data = train)
+lm_fit <- lm(deaths ~ ., data = train)
 ```
 
 
 ### Linear model with interactions
 ```{r}
-lm_inter_fit <- lm(confirmed ~ . + .:., data = train)
+lm_inter_fit <- lm(deaths ~ . + .:., data = train)
 ```
 
 
@@ -64,30 +66,42 @@ lm_inter_fit <- lm(confirmed ~ . + .:., data = train)
 ```{r}
 library(keras)
 
+#input shape of x train 
+input_shape <- ncol(train_x)
+
+##Specifying model architecture
 nn_model <-
   keras_model_sequential() %>% 
-  layer_dense(input_shape = c(65), units = 50, activation = "relu") %>% 
-  layer_dropout(0.2) %>% 
-  layer_dense(units = 50, activation = "relu") %>% 
+  layer_dense(input_shape = input_shape, units = 20, activation = "relu") %>% 
+  # layer_dropout(0.2) %>%
+  layer_dense(units = 20, activation = "relu") %>%
+  layer_dense(units = 20, activation = "relu") %>%
+  layer_dense(units = 20, activation = "relu") %>%
+  layer_dense(units = 20, activation = "relu") %>%
+  layer_dense(units = 20, activation = "relu") %>%
+  layer_dense(units = 20, activation = "relu") %>%
   layer_dense(1, activation = "linear")
 
 summary(nn_model)
 
+##Compiling the model
 nn_model %>% 
   compile(
     loss = "mean_squared_error",
     optimizer = "adam",
-    metrics = "accuracy"
+    metrics = c("mse", "mae")
   )
 
+##Running the model 
 history <- 
   fit(
     object = nn_model, 
     x = as.matrix(train_x), 
     y = train_y,
-    batch_size = 100, 
-    epochs = 150
+    batch_size = 200, 
+    epochs = 500
   )
+
 ```
 
 
@@ -97,19 +111,17 @@ history <-
 train %>% 
   mutate(
     lm_pred = predict(lm_fit, train_x),
-    lm_sqr_error = (confirmed - lm_pred)^2,
+    lm_sqr_error = (deaths - lm_pred)^2,
     ilm_pred = predict(lm_inter_fit, train_x),
-    ilm_sqr_error = (confirmed - ilm_pred)^2,
+    ilm_sqr_error = (deaths - ilm_pred)^2,
     nn_pred = predict(nn_model, as.matrix(train_x)),
-    nn_sqr_error = (confirmed - nn_pred)^2,
+    nn_sqr_error = (deaths - nn_pred)^2,
   ) %>% 
   summarize(
     lm_mse = mean(lm_sqr_error, na.rm = TRUE), 
     ilm_pred = mean(ilm_sqr_error, na.rm = TRUE),
     nn_mse = mean(nn_sqr_error, na.rm = TRUE)
   )
-
-
 ```
 
 
@@ -118,11 +130,11 @@ train %>%
 valid %>% 
   mutate(
     lm_pred = predict(lm_fit, valid_x),
-    lm_sqr_error = (confirmed - lm_pred)^2,
+    lm_sqr_error = (deaths - lm_pred)^2,
     ilm_pred = predict(lm_inter_fit, valid_x),
-    ilm_sqr_error = (confirmed - ilm_pred)^2,
+    ilm_sqr_error = (deaths - ilm_pred)^2,
     nn_pred = predict(nn_model, as.matrix(valid_x)),
-    nn_sqr_error = (confirmed - nn_pred)^2,
+    nn_sqr_error = (deaths - nn_pred)^2,
   ) %>% 
   summarize(
     lm_mse = mean(lm_sqr_error, na.rm = TRUE), 
@@ -132,6 +144,18 @@ valid %>%
 
 ```
 
+```{r}
+covid %>% 
+  ggplot(aes(confirmed, deaths)) + 
+  geom_point(alpha = 0.2) + 
+  scale_y_log10() + 
+  scale_x_log10() + 
+  labs(
+    x = "Confirmed (logged scale)", 
+    y = "Deaths (logged scale)"
+  )
+  
+```
 
 
 
