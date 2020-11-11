@@ -36,7 +36,7 @@ covid %>%
     labels = function(x) if_else(x < 1000, as.character(x), str_c(x/1000, "k"))
   ) + 
   labs(
-    x = "Confirmed (logged scale)", 
+    x = "Confirmed cases (logged scale)", 
     y = "Deaths (logged scale)", 
     title = "Number of deaths and confirmed cases by county"
   )
@@ -205,7 +205,7 @@ valid %>%
   summarize_at(vars(ends_with("sqr_error")), mean, na.rm = TRUE)
 ```
 
-### Error Analysis
+### Error Analysis for the neural network model
 ```{r}
 valid %>% 
   mutate(
@@ -216,8 +216,6 @@ valid %>%
   arrange(desc(diff)) %>% 
   slice(1:100) %>% 
   write_csv("error_analysis.csv")
-  
-  
 ```
 
 
