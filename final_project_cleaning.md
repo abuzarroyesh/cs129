@@ -1,16 +1,24 @@
----
-title: "Final_project"
-output:
-  pdf_document: default
----
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
+Final\_project
+================
 
 ### Covid data
-```{r}
+
+``` r
 library(tidyverse)
+```
+
+    ## ── Attaching packages ─────────────────────────────────────── tidyverse 1.3.0 ──
+
+    ## ✓ ggplot2 3.3.2     ✓ purrr   0.3.4
+    ## ✓ tibble  3.0.4     ✓ dplyr   1.0.2
+    ## ✓ tidyr   1.1.2     ✓ stringr 1.4.0
+    ## ✓ readr   1.4.0     ✓ forcats 0.5.0
+
+    ## ── Conflicts ────────────────────────────────────────── tidyverse_conflicts() ──
+    ## x dplyr::filter() masks stats::filter()
+    ## x dplyr::lag()    masks stats::lag()
+
+``` r
 library(readxl)
 
 covid_raw <- 
@@ -29,8 +37,28 @@ covid_raw <-
   filter(!state == "Puerto Rico")
 ```
 
+    ## 
+    ## ── Column specification ────────────────────────────────────────────────────────
+    ## cols(
+    ##   FIPS = col_double(),
+    ##   Admin2 = col_character(),
+    ##   Province_State = col_character(),
+    ##   Country_Region = col_character(),
+    ##   Last_Update = col_datetime(format = ""),
+    ##   Lat = col_double(),
+    ##   Long_ = col_double(),
+    ##   Confirmed = col_double(),
+    ##   Deaths = col_double(),
+    ##   Recovered = col_double(),
+    ##   Active = col_double(),
+    ##   Combined_Key = col_character(),
+    ##   Incidence_Rate = col_double(),
+    ##   `Case-Fatality_Ratio` = col_double()
+    ## )
+
 ### Demographic data
-```{r}
+
+``` r
 data <- 
   read_tsv("data/pcen_v2019_y19.txt", col_names = FALSE) %>% 
   mutate(
@@ -75,22 +103,19 @@ data <-
       )
   ) %>% 
   select(-X1, -race_sex, -age) 
-
 ```
 
+    ## 
+    ## ── Column specification ────────────────────────────────────────────────────────
+    ## cols(
+    ##   X1 = col_character()
+    ## )
 
-What age means: 
-"age1" = "age0-4"
-"age2" = "age5-17"
-"age3" = "age18-29"
-"age4" = "age30-39"
-"age5" = "age40-49"
-"age6" = "age50-64"
-"age7" = "age65-74"
-"age8" = "age75-84"
-"age9" = "age85+"
+What age means: “age1” = “age0-4” “age2” = “age5-17” “age3” = “age18-29”
+“age4” = “age30-39” “age5” = “age40-49” “age6” = “age50-64” “age7” =
+“age65-74” “age8” = “age75-84” “age9” = “age85+”
 
-```{r}
+``` r
 ##Writing function to extract percentage for each category
 summary_stats <- function(variable_name){
   variable_name = enquo(variable_name)
@@ -115,7 +140,8 @@ demographics <-
 ```
 
 ### Poverty data
-```{r}
+
+``` r
 poverty <- 
   read_xls("data/PovertyEstimates.xls") %>% 
   mutate(fips = as.integer(FIPStxt)) %>% 
@@ -131,7 +157,8 @@ poverty <-
 ```
 
 ### Education data
-```{r}
+
+``` r
 education <- 
   read_xls("data/Education.xls") %>% 
   mutate(fips = as.integer(`FIPS Code`)) %>% 
@@ -147,7 +174,8 @@ education <-
 ```
 
 ### Unemployment data
-```{r}
+
+``` r
 unemp <- 
   read_xls("data/Unemployment.xls") %>% 
   mutate(fips = as.integer(`FIPStxt`)) %>% 
@@ -159,10 +187,9 @@ unemp <-
   )
 ```
 
-
-
 ### Life expectancy, Physical activity, and obesity
-```{r}
+
+``` r
 life <- 
   read_xlsx("data/IHME_county_data_LifeExp.xlsx", sheet = 1) %>% 
   filter(!is.na(County)) %>% 
@@ -194,11 +221,16 @@ life <-
       ), 
     by = c("county_name", "state")
   )
-
 ```
 
+    ## New names:
+    ## * `` -> ...11
+    ## New names:
+    ## * `` -> ...11
+
 ### Diabetes
-```{r}
+
+``` r
 diabetes <- 
   read_xlsx("data/IHME_county_data_Diabetes.xlsx", sheet = "Total") %>% 
   select(
@@ -208,8 +240,9 @@ diabetes <-
   )
 ```
 
-### Mortality rates  
-```{r}
+### Mortality rates
+
+``` r
 mortality <- 
   read_tsv("data/Multiple Cause of Death, 1999-2018.txt", n_max = 17189) %>% 
   mutate(
@@ -235,13 +268,29 @@ mortality <-
   select(fips, age, mort_rate) %>% 
   spread(key = age, value = mort_rate) %>% 
   mutate_all(replace_na, 0)
-
 ```
 
+    ## 
+    ## ── Column specification ────────────────────────────────────────────────────────
+    ## cols(
+    ##   Notes = col_logical(),
+    ##   County = col_character(),
+    ##   `County Code` = col_character(),
+    ##   `Ten-Year Age Groups` = col_character(),
+    ##   `Ten-Year Age Groups Code` = col_character(),
+    ##   Deaths = col_double(),
+    ##   Population = col_double(),
+    ##   `Crude Rate` = col_character()
+    ## )
 
+    ## Warning: 2 parsing failures.
+    ##   row        col expected         actual                                          file
+    ## 10207 Population a double Not Applicable 'data/Multiple Cause of Death, 1999-2018.txt'
+    ## 12481 Population a double Not Applicable 'data/Multiple Cause of Death, 1999-2018.txt'
 
 ### Merging the datasets
-```{r}
+
+``` r
 covid_raw %>% 
   left_join(
     read_csv("data/county_populations.csv"), by = c("fips" = "county_code")
@@ -254,15 +303,11 @@ covid_raw %>%
   left_join(diabetes, by = "fips") %>% 
   left_join(mortality, by = "fips") %>% 
   write_csv("covid_cleaned.csv")
-
 ```
 
-
-
-
-
-
-
-
-
-
+    ## 
+    ## ── Column specification ────────────────────────────────────────────────────────
+    ## cols(
+    ##   county_code = col_double(),
+    ##   total_pop = col_double()
+    ## )
